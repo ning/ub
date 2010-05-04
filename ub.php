@@ -98,7 +98,20 @@ function ub_parse_code($code) {
     }
     $states_rx = join("|", array_keys($blocks));
 
-    foreach (token_get_all($code) as $tok) {
+    $tokens = token_get_all($code);
+    
+    /* Trim off whitespace-after-closing-tag if that's at the end of the token list */
+    $last_token = end($tokens);
+    if (($last_token[0] == T_INLINE_HTML) && preg_match('/^\s+$/u', $last_token[1])) {
+        array_pop($tokens);
+    }
+    /* Trim off a closing tag if that's at the end of the token list */
+    $last_token = end($tokens);
+    if ($last_token[0] == T_CLOSE_TAG) {
+        array_pop($tokens);
+    }
+
+    foreach ($tokens as $tok) {
         /* Standardize token representation as an array */
         if (! is_array($tok)) { $tok = array(T_STRING, $tok); }
 
