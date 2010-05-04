@@ -1,0 +1,112 @@
+#!/usr/bin/env php
+<?php /* -*-php-*- */
+include __DIR__ . '/ub.php';
+
+define('___DEFAULT_ITER', 1000);
+date_default_timezone_set('GMT');
+
+$opts = ub_parse_opts('vi:hcx:r', array_slice($_SERVER['argv'], 1));
+
+$opts['h'] and usage();
+
+if (($opts['c']) && (! is_callable("clock_gettime"))) {
+    usage("-c specified for clock_gettime(), but function is not available");
+}
+
+if (! is_null($opts['i'])) {
+    (strval(intval($opts['i'])) === $opts['i']) or usage();
+    ($opts['i'] > 0) or usage();
+    $iter = intval($opts['i']);
+} else {
+    $iter = ___DEFAULT_ITER;
+}
+
+/* If more than one benchmark was specified, then 
+ * reinvoke this program once for each benchmark */
+if (count($opts['_']) > 1) {
+    $program = escapeshellcmd($_SERVER['_']);
+    $args = array();
+    if ($_SERVER['argv'][0] != $_SERVER['_']) {
+        $args[] = escapeshellarg($_SERVER['argv'][0]);
+    }
+    if ($opts['c']) { $args[] = '-c'; }
+    if ($opts['v']) { $args[] = '-v'; }
+    array_push($args, '-i', $iter);
+    if (! is_null($opts['x'])) {
+        foreach ((array) $opts['x'] as $opt) {
+            array_push($args, '-x', escapeshellarg($opt));
+        }
+    }
+    $base_command = $program . ' ' . implode(' ' , $args);
+    foreach ($opts['_'] as $benchmark) {
+        passthru($base_command . ' ' . escapeshellarg($benchmark));
+    }
+    exit(0);
+}
+
+/* There should be one and only one benchmark to run at this point */
+(count($opts['_']) == 1) or usage();
+$file = $opts['_'][0];
+$benchmark = pathinfo($file, PATHINFO_FILENAME);
+
+/* Make sure file is actually readable */
+is_readable($file) or usage("Can't read $file");
+
+/* Massage any extra arguments if provided */
+$extra = array();
+if (! is_null($opts['x'])) {
+    foreach ((array) $opts['x'] as $opt) {
+        if (strpos($opt, '=') !== false) {
+            list($k,$v) = explode('=', $opt, 2);
+            if (isset($extra[$k])) {
+                $extra[$k] = (array) $extra[$k];
+                $extra[$k][] = $v;
+            } else {
+                $extra[$k] = $v;
+            }
+        }
+        else {
+            $extra[$opt] = true;
+        }
+    }
+}
+
+/* Runner mode? Just set $__opts and run the script */
+if ($opts['r']) {
+    $___opts = $extra;
+    include $file;
+    exit(0);
+}
+
+/* Benchmark mode */
+$blocks = ub_parse_code(file_get_contents($file));
+$lambda = ub_generate_function($blocks, $iter, $opts['v'], $opts['c'], $extra);
+$times = $lambda();
+ub_print_results($benchmark, $times);
+
+
+/** How to run this program */
+function usage($error = null) {
+    if (! is_null($error)) {
+        print "Error: $error\n";
+    }
+    print "
+Usage: {$_SERVER['argv'][0]} [OPTIONS] BENCHMARK [BENCHMARK2 ...]
+
+Runs microbenchmark BENCHMARK BENCHMARK2, ... and display
+timing results. All output times are in milliseconds.
+
+Options:
+-i  How many iterations each benchmark is run for.
+    Defaults to ". ___DEFAULT_ITER ." if not specified.
+-v  Enables more verbose output
+-c  Enables experimental clock extension for timing
+-h  Prints this usage message
+-x  Passes options to the benchmark script(s). Can be specified multiple
+    times.
+-r  Run the benchmark script(s) just once without any parsing or
+    modification other than setting options appropriately. No output
+    timing is displayed. 
+";
+    exit(-1);
+}  

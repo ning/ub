@@ -1,0 +1,145 @@
+-*-org-*-
+#+TITLE: ub
+
+* What
+
+ub is a PHP microbenchmarking framework. Its purpose is to make it
+fast and easy to write little code snippets and see how long they take
+to run. This is particularly useful if there are a few potential ways
+of solving a problem and you want to choose the fastest one.
+
+* Basics
+
+An ub microbenchmark is just a regular PHP script. It needs a few
+comments in a few places to tell ub what to measure.
+
+The most important comment is "// time". It tells ub to measure how
+long it takes to execute the code that comes after the comment. For
+example:
+
+<?php
+// time
+array_merge(array('alice'), array('alice','bob'));
+
+Save that code to a file called "array-merge.php" and then run:
+
+ub array-merge.php
+ 
+You'll get some output that looks like:
+
+                     array-merge: mean=0.005670 median=0.005000 min=0.005000 max=0.027000 stdev=0.001417
+
+All times are in milliseconds. By default, ub runs your code 1000
+times and then reports the results across all 1000 iterations. The
+"-i" command line argument changes the number of iterations.
+
+Frequently, you need some setup code that you don't want to include in
+the timing but needs to be run on each benchmark iteration
+nonetheless. The ub comment that marks this kind of code is 
+"// init". For example:
+
+<?php
+// init
+$numbers = range(0, 100);
+shuffle($numbers);
+// time
+sort($numbers);
+
+Each time ub executes a timing loop, it runs the range() and shuffle()
+functions, turns on the clock, runs sort(), and then turns off the
+clock. This ensures a potentially different array is shuffled in each
+iteration, but the time required to construct the shuffled array isn't
+part of the results.
+
+When benchmarking functions or classes, you need to define the
+function or class just once, not each time through the timing
+loop. That's where the "// once" comment comes in. Use that to denote
+code that should run just once, before the timing loop starts. For
+example:
+
+<?php
+// once
+function range_and_shuffle($size) {
+  $numbers = range(0, $size);
+  shuffle($numbers);
+  return $numbers;
+}
+// init
+$nums = range_and_shuffle(100);
+// time
+sort($nums);
+
+There are two other comments that are useful:
+- "// done" marks code that is run inside each loop *after* the code
+  to time is run. The "// done" code does not count towards the
+  measured times.
+- "// ignore" marks code that is ignored when benchmarking is
+  active. This is useful for debugging or other information you want
+  to print out when running the benchmark script through regular PHP
+  or through ub's runner mode.
+
+Only the "// time" comment is required. The rest are optional, but if
+they appear, have to be in order: once, init, time, done, ignore. You
+must use the "//" comment style. (And strictly speaking, "//time" is
+not required -- if you leave it out, the results will just reflect the
+overhead of two successive gettimeofday() calls in PHP.)
+
+* Options and Intracacies
+
+** Passing Options to Benchmarks
+
+Having to write entirely separate benchmark files for small variations
+(such as the number of elements in an array of numbers to sort) is
+tedious. Instead, use ub's option passing capabilities. The -x
+command-line argument, which can be specified more than once, tells ub
+to populate an $___opts array that will be available to the benchmark
+file. Depending on how -x is used, different values show up in
+$___opts. For example:
+
+      Command line: no -x arguments
+$___opts structure: array()
+      
+      Command line: -x asparagus                              
+$___opts structure: array('asparagus' => true)
+
+      Command line: -x asparagus -x broccoli=green                
+$___opts structure: array('asparagus' => true, 'broccoli' => 'green')
+
+      Command line: -x asparagus -x broccoli=green -x broccoli=12 
+$___opts structure: array('asparagus' => true, 'broccoli' => array('green','12')
+
+-x values with = in them are converted to key/value pairs (and the
+values are always strings); -x values without = result in a value of
+boolean true. Multiple keys result in $___opts array values which are
+themselves values.
+
+** Runner Mode
+
+If you've created a benchmark file that uses $___opts, you've lost a
+little bit of the ease of testing your benchmarking file by running it
+through regular PHP -- there is no $___opts array available. ub's
+"runner mode", activated with the -r command line argument helps with
+this. Runner mode populates $___opts from command line arguments and
+runs the benchmark file -- that's it. No iteration, no special
+attention to the comments that delimit the file. After runner mode
+builds $___opts, your benchmark file is run as usual.
+
+** Multiple Benchmarks
+
+You can supply multiple benchmark names or filenames on the
+commandline to run them all in one go. Internally, ub uses a separate
+PHP process for each benchmark. This prevents any collision between
+classes or functions that may have the same name in separate benchmark
+files.
+
+** Clock Extension
+
+ub uses PHP's gettimeofday() function (which uses the underlying
+gettimeofday(2) system call) to obtain wall clock time before and
+after the code to be timed is run. The experimental extension in the
+"clock" subdirectory provides a PHP interface to the clock_gettime(3)
+Linux system call. For now, it just offers the CLOCK_MONOTONIC clock,
+but this can provide a higher granularity measure of elapsed time with
+less overhead. The clock-gettime.[ch] files in this directory provide
+OS X functions that duplicate Linux's clock_gettime(3) functionality.
+
